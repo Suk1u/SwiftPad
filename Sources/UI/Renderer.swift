@@ -130,7 +130,7 @@ struct Renderer {
                         ForEach(0..<label.count, id: \.self) { i in self.view(label[i]) }
                     }
                 }
-            })
+            }
             .frame(minWidth: 44, minHeight: 44)
             .accessibilityLabel(accessibleLabel))
 
@@ -143,7 +143,7 @@ struct Renderer {
                 }
             )) {
                 Text(label)
-            })
+            }
             .frame(minHeight: 44)
             .accessibilityLabel(label.isEmpty ? "Toggle" : label)
             .accessibilityValue(box.value.asBool() ? "On" : "Off"))
@@ -180,7 +180,7 @@ struct Renderer {
                 }
             ), in: 0...100, step: 1) {
                 Text(label)
-            })
+            }
             .frame(minHeight: 44)
             .accessibilityLabel(label.isEmpty ? "Stepper" : label)
             .accessibilityValue(box.value.str()))
