@@ -160,7 +160,8 @@ final class Interpreter {
         // pass 2 — globals, now that every function and type exists
         for pd in globalProps {
             if let initE = pd.initializer {
-                globals[pd.name] = try eval(initE, env: Env()).copyForStorage
+                let value = try eval(initE, env: Env())
+                globals[pd.name] = coerce(value, pd.typeName).copyForStorage
             } else {
                 globals[pd.name] = .void
             }
@@ -637,8 +638,12 @@ final class Interpreter {
             var index = -1
             for (i, c) in cases.enumerated() {
                 if c.isDefault {
-                    index = i
-                    break
+                    let f = try execBlock(c.body, env: env)
+                    if case .fallthroughFlow = f {
+                        index = i
+                        break
+                    }
+                    return f
                 }
                 for p in c.patterns {
                     let binds = Env(parent: env)
