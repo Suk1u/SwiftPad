@@ -1,3 +1,4 @@
+// iOS 26 target: rendered content uses native SwiftUI controls and materials only.
 import SwiftUI
 import UIKit
 import Foundation
@@ -117,6 +118,7 @@ struct Renderer {
             })
 
         case .button(let label, let action):
+            let accessibleLabel = plainText(label).isEmpty ? "Button" : plainText(label)
             return AnyView(Button(action: {
                 action()
                 self.invalidate()
@@ -129,6 +131,8 @@ struct Renderer {
                     }
                 }
             })
+            .frame(minWidth: 44, minHeight: 44)
+            .accessibilityLabel(accessibleLabel))
 
         case .toggle(let label, let box):
             return AnyView(Toggle(isOn: Binding(
@@ -140,13 +144,17 @@ struct Renderer {
             )) {
                 Text(label)
             })
+            .frame(minHeight: 44)
+            .accessibilityLabel(label.isEmpty ? "Toggle" : label)
+            .accessibilityValue(box.value.asBool() ? "On" : "Off"))
 
-        case .textField(let placeholder, let box):
-            return AnyView(TextField(placeholder, text: Binding(
-                get: { box.value.str() },
-                set: { nv in box.value = .string(nv) }
+        case .textField(let placeholder, let box, let secure):
+            return AnyView(InterpretedTextField(
+                placeholder: placeholder,
+                box: box,
+                secure: secure,
+                onCommit: self.invalidate
             ))
-            .onSubmit { self.invalidate() })
 
         case .slider(let box, let lo, let hi):
             return AnyView(Slider(value: Binding(
@@ -154,7 +162,10 @@ struct Renderer {
                 set: { nv in box.value = .double(nv) }
             ), in: lo...hi, onEditingChanged: { editing in
                 if !editing { self.invalidate() }
-            }))
+            })
+            .frame(minHeight: 44)
+            .accessibilityLabel("Slider")
+            .accessibilityValue(box.value.str()))
 
         case .stepper(let label, let box):
             return AnyView(Stepper(value: Binding(
@@ -170,27 +181,45 @@ struct Renderer {
             ), in: 0...100, step: 1) {
                 Text(label)
             })
+            .frame(minHeight: 44)
+            .accessibilityLabel(label.isEmpty ? "Stepper" : label)
+            .accessibilityValue(box.value.str()))
         }
     }
 
     private func navView(_ title: String?, _ kids: [ViewNode]) -> AnyView {
-        AnyView(VStack(alignment: .leading, spacing: 0) {
-            if let title = title {
-                HStack {
-                    Text(title)
-                        .font(.system(size: 17, weight: .semibold))
-                    Spacer()
+        AnyView(NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(0..<kids.count, id: \.self) { i in self.view(kids[i]) }
                 }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(Color(uiColor: .secondarySystemBackground))
-                Divider()
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding()
             }
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(0..<kids.count, id: \.self) { i in self.view(kids[i]) }
-            }
-            .padding(.vertical, 8)
+            .navigationTitle(title ?? "")
+            .navigationBarTitleDisplayMode(.inline)
         })
+    }
+
+    private func plainText(_ nodes: [ViewNode]) -> String {
+        nodes.map { node in
+            switch node.base {
+            case .text(let value):
+                return value
+            case .image(let name):
+                return name
+            case .stack(_, _, _, let children),
+                 .scroll(let children),
+                 .list(let children),
+                 .nav(_, let children),
+                 .group(let children):
+                return plainText(children)
+            default:
+                return ""
+            }
+        }
+        .joined()
+        .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     // MARK: - Shapes
@@ -570,5 +599,43 @@ extension Color {
             r = 0.5; g = 0.5; b = 0.5; a = 1
         }
         self.init(.sRGB, red: r, green: g, blue: b, opacity: a)
+    }
+}
+
+/// Keeps field focus while the interpreted state changes, and re-evaluates the
+/// user's body only on submit or focus loss instead of after every keystroke.
+private struct InterpretedTextField: View {
+    let placeholder: String
+    let box: StateBox
+    let secure: Bool
+    let onCommit: () -> Void
+
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        field
+            .focused($focused)
+            .frame(minHeight: 44)
+            .onSubmit(onCommit)
+            .onChange(of: focused) { _, isFocused in
+                if !isFocused { onCommit() }
+            }
+            .accessibilityLabel(placeholder.isEmpty
+                                ? (secure ? "Secure text field" : "Text field")
+                                : placeholder)
+            .accessibilityValue(secure ? "Protected" : box.value.str())
+    }
+
+    @ViewBuilder
+    private var field: some View {
+        let binding = Binding(
+            get: { box.value.str() },
+            set: { box.value = .string($0) }
+        )
+        if secure {
+            SecureField(placeholder, text: binding)
+        } else {
+            TextField(placeholder, text: binding)
+        }
     }
 }

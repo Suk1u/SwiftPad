@@ -5,8 +5,11 @@ preview them live. No Xcode, no build step, no App Store.
 
 ```
 swiftpad/
+├── PROMPT.md                    # product and engineering contract
 ├── project.yml                  # XcodeGen spec
 ├── build_ipa.sh                 # -> build/SwiftPad.ipa
+├── Tests/
+│   └── SwiftPadTests.swift      # parser / interpreter regression suite
 └── Sources/
     ├── SwiftPadApp.swift        # @main
     ├── Info.plist
@@ -100,9 +103,10 @@ Because frames live on the heap instead of the Swift call stack, a VM run can be
 and resumed — that is the property the tree-walker cannot offer, and the reason the VM
 exists. Real `await` suspension and reference-counted `deinit` both land on top of it.
 
-The VM is **opt-in and unverified**: it has never been compiled, let alone run. Expect a
-debug pass before trusting it. The toggle exists precisely so a bug in it can't take the
-working app down with it.
+The VM is **opt-in and unverified**. It is compiled with the app and its bridge shares the
+tree-walker's semantic primitives, but it has not had the same runtime coverage as the default
+engine. Expect a debug pass before trusting it. The toggle exists precisely so a bug in it
+cannot take the working app down with it.
 
 ## The three tiers
 
@@ -156,6 +160,11 @@ older SDK cannot compile it. If the runner image doesn't carry Xcode 26 yet, dis
 workflow with the `xcode` input set to a version that does, or pin `runs-on` to a newer
 image.
 
+Before producing the IPA, CI runs `SwiftPadTests` on an available iPhone simulator. The suite
+covers value/reference semantics, @State persistence, string interpolation, defer/error
+handling, switch/fallthrough, sets, subscripts, custom operators, observers, lazy values,
+protocol checks, and SecureField rendering.
+
 Sign it after downloading with Sideloadly, AltStore or TrollStore. The repo never holds
 signing material — `.gitignore` excludes profiles, certificates and entitlements.
 
@@ -175,6 +184,14 @@ PROFILE="$HOME/Downloads/profile.mobileprovision" \
 ```
 
 Or `xcodegen generate`, open `SwiftPad.xcodeproj`, pick your team, run on device.
+
+To run the semantic suite locally:
+
+```bash
+xcodegen generate
+xcodebuild -project SwiftPad.xcodeproj -scheme SwiftPad \
+  -destination 'platform=iOS Simulator,name=iPhone 17' test
+```
 
 Sideloading: free Apple ID = 7-day profile (re-sign weekly); paid account = 1 year; TrollStore =
 install the unsigned IPA directly, no expiry.

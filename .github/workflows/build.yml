@@ -63,6 +63,27 @@ jobs:
       - name: Generate project
         run: xcodegen generate
 
+      - name: Run semantic tests
+        run: |
+          set -euo pipefail
+          UDID=$(xcrun simctl list devices available -j \
+            | ruby -rjson -e '
+                data = JSON.parse(STDIN.read)
+                device = data.fetch("devices").values.flatten.find do |d|
+                  d["isAvailable"] && d["name"].start_with?("iPhone")
+                end
+                abort "No available iPhone simulator" unless device
+                puts device["udid"]
+              ')
+          echo "Using simulator $UDID"
+          xcodebuild \
+            -project SwiftPad.xcodeproj \
+            -scheme SwiftPad \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            test
+
       - name: Build (unsigned)
         run: |
           set -euo pipefail

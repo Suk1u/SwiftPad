@@ -25,6 +25,8 @@ final class Env {
 
     func define(_ n: String, _ v: Value) { vars[n] = v }
 
+    func defineCopy(_ n: String, _ v: Value) { vars[n] = v.copyForStorage }
+
     func set(_ n: String, _ v: Value) -> Bool {
         if vars[n] != nil { vars[n] = v; return true }
         return parent?.set(n, v) ?? false
@@ -158,7 +160,7 @@ final class Interpreter {
         // pass 2 — globals, now that every function and type exists
         for pd in globalProps {
             if let initE = pd.initializer {
-                globals[pd.name] = try eval(initE, env: Env())
+                globals[pd.name] = try eval(initE, env: Env()).copyForStorage
             } else {
                 globals[pd.name] = .void
             }
@@ -407,7 +409,7 @@ final class Interpreter {
                     if let b = b { out += try collectViews(b, env: env) }
                 } else {
                     let inner = Env(parent: env)
-                    inner.define(n, v)
+                    inner.defineCopy(n, v)
                     out += try collectViews(a, env: inner)
                 }
 
@@ -418,7 +420,7 @@ final class Interpreter {
             case .forIn(let n, let seq, let body):
                 for item in try iterate(try eval(seq, env: env)) {
                     let inner = Env(parent: env)
-                    inner.define(n, item)
+                    inner.defineCopy(n, item)
                     out += try collectViews(body, env: inner)
                 }
 
@@ -426,7 +428,7 @@ final class Interpreter {
                 for item in try iterate(try eval(seq, env: env)) {
                     guard case .tuple(let vals) = item, vals.count == names.count else { continue }
                     let inner = Env(parent: env)
-                    for (i, n) in names.enumerated() { inner.define(n, vals[i]) }
+                    for (i, n) in names.enumerated() { inner.defineCopy(n, vals[i]) }
                     out += try collectViews(body, env: inner)
                 }
 
@@ -451,13 +453,13 @@ final class Interpreter {
 
             case .prop(let p):
                 if let initE = p.initializer {
-                    env.define(p.name, try eval(initE, env: env))
+                    env.defineCopy(p.name, try eval(initE, env: env))
                 }
 
             case .tupleLet(let names, let e):
                 let v = try eval(e, env: env)
                 if case .tuple(let vals) = v, vals.count == names.count {
-                    for (i, n) in names.enumerated() { env.define(n, vals[i]) }
+                    for (i, n) in names.enumerated() { env.defineCopy(n, vals[i]) }
                 }
 
             case .returnStmt(let e):
@@ -521,7 +523,7 @@ final class Interpreter {
         case .prop(let p):
             if let initE = p.initializer {
                 let v = coerce(try eval(initE, env: env), p.typeName)
-                env.define(p.name, v)
+                env.defineCopy(p.name, v)
             } else {
                 env.define(p.name, .void)
             }
@@ -546,7 +548,7 @@ final class Interpreter {
                 return .normal(nil)
             }
             let inner = Env(parent: env)
-            inner.define(n, v)
+            inner.defineCopy(n, v)
             return try execBlock(a, env: inner)
 
         case .guardStmt(let c, let elseBody):
@@ -561,7 +563,7 @@ final class Interpreter {
         case .guardLet(let n, let e, let elseBody):
             let v = try eval(e, env: env)
             if !v.isNil {
-                env.define(n, v)
+                env.defineCopy(n, v)
                 return .normal(nil)
             }
             let f = try execBlock(elseBody, env: env)
@@ -574,7 +576,7 @@ final class Interpreter {
         case .forIn(let n, let seq, let body):
             for item in try iterate(try eval(seq, env: env)) {
                 let inner = Env(parent: env)
-                inner.define(n, item)
+                inner.defineCopy(n, item)
                 let f = try execBlock(body, env: inner)
                 switch f {
                 case .breakLoop: return .normal(nil)
@@ -590,7 +592,7 @@ final class Interpreter {
             for item in try iterate(try eval(seq, env: env)) {
                 guard case .tuple(let vals) = item, vals.count == names.count else { continue }
                 let inner = Env(parent: env)
-                for (i, n) in names.enumerated() { inner.define(n, vals[i]) }
+                for (i, n) in names.enumerated() { inner.defineCopy(n, vals[i]) }
                 let f = try execBlock(body, env: inner)
                 switch f {
                 case .breakLoop: return .normal(nil)
@@ -675,9 +677,9 @@ final class Interpreter {
                         if !match(p, thrown.value, inner) { continue }
                     }
                     if let n = c.name {
-                        inner.define(n, thrown.value)
+                        inner.defineCopy(n, thrown.value)
                     } else if c.pattern == nil {
-                        inner.define("error", thrown.value)
+                        inner.defineCopy("error", thrown.value)
                     }
                     return try execBlock(c.body, env: inner)
                 }
@@ -708,7 +710,7 @@ final class Interpreter {
             guard case .tuple(let vals) = v, vals.count == names.count else {
                 throw RuntimeError("cannot destructure that value into \(names.count) names")
             }
-            for (i, n) in names.enumerated() { env.define(n, vals[i]) }
+            for (i, n) in names.enumerated() { env.defineCopy(n, vals[i]) }
             return .normal(nil)
         }
     }
@@ -834,7 +836,7 @@ final class Interpreter {
             }
             if customOps.contains(op), let f = functions[op] {
                 let inner = Env()
-                if let p0 = f.params.first { inner.define(p0.name, v) }
+                if let p0 = f.params.first { inner.defineCopy(p0.name, v) }
                 let flow = try execBlock(f.body, env: inner)
                 if case .ret(let r) = flow, let r = r { return r }
                 return .void
@@ -977,7 +979,7 @@ final class Interpreter {
                 inner.selfObj = o
                 for (i, p) in f.params.enumerated() {
                     if i < idx.count {
-                        inner.define(p.name, try eval(idx[i], env: env))
+                        inner.defineCopy(p.name, try eval(idx[i], env: env))
                     } else {
                         inner.define(p.name, v.copyForStorage)
                     }
@@ -1119,7 +1121,7 @@ final class Interpreter {
                 let inner = Env()
                 inner.selfObj = o
                 for (i, p) in f.params.enumerated() {
-                    inner.define(p.name, i < keys.count ? keys[i] : .void)
+                    inner.define(p.name, i < keys.count ? keys[i].copyForStorage : .void)
                 }
                 let flow = try execBlock(f.body, env: inner)
                 if case .ret(let v) = flow, let v = v { return v }
@@ -1270,7 +1272,7 @@ final class Interpreter {
             return try invoke(fd, args, env, nil, definingEnv: closureEnv)
         case .closure(let cd, let closureEnv):
             let inner = Env(parent: closureEnv)
-            let vals = try args.map { try eval($0.value, env: env) }
+            let vals = try args.map { try eval($0.value, env: env).copyForStorage }
             for (i, p) in cd.params.enumerated() {
                 inner.define(p.name, i < vals.count ? vals[i] : .void)
             }
@@ -1338,7 +1340,7 @@ final class Interpreter {
             if let v = values[i] {
                 env.define(params[i].name, v)
             } else if let d = params[i].defaultValue {
-                env.define(params[i].name, try eval(d, env: env))
+                env.defineCopy(params[i].name, try eval(d, env: env))
             } else {
                 env.define(params[i].name, .void)
             }
@@ -1686,10 +1688,11 @@ final class Interpreter {
 
     private func callClosureValue(_ cd: ClosureDef, _ env: Env, _ values: [Value]) throws -> Value {
         let inner = Env(parent: env)
+        let stored = values.map { $0.copyForStorage }
         for (i, p) in cd.params.enumerated() {
-            inner.define(p.name, i < values.count ? values[i] : .void)
+            inner.define(p.name, i < stored.count ? stored[i] : .void)
         }
-        inner.args = values
+        inner.args = stored
         let flow = try execBlock(cd.body, env: inner)
         if case .ret(let v) = flow, let v = v { return v }
         return .void
@@ -1798,8 +1801,8 @@ final class Interpreter {
             var out: [ViewNode] = []
             for item in try iterate(seq) {
                 let inner = Env(parent: env)
-                if let p = cd.params.first { inner.define(p.name, item) }
-                inner.args = [item]
+                if let p = cd.params.first { inner.defineCopy(p.name, item) }
+                inner.args = [item.copyForStorage]
                 out += try collectViews(cd.body, env: inner)
             }
             return .view(ViewNode(base: .group(out)))
@@ -1836,7 +1839,7 @@ final class Interpreter {
             guard let b = try labeledArg(args, "text", env), case .binding(let box) = b else {
                 throw RuntimeError("\(name) needs `text: $someStringState`")
             }
-            return .view(ViewNode(base: .textField(placeholder, box)))
+            return .view(ViewNode(base: .textField(placeholder, box, name == "SecureField")))
 
         case "Slider":
             guard let b = try labeledArg(args, "value", env), case .binding(let box) = b else {
@@ -1923,8 +1926,8 @@ final class Interpreter {
         default:
             if customOps.contains(op), let f = functions[op] {
                 let inner = Env()
-                if f.params.count > 0 { inner.define(f.params[0].name, l) }
-                if f.params.count > 1 { inner.define(f.params[1].name, r) }
+                if f.params.count > 0 { inner.defineCopy(f.params[0].name, l) }
+                if f.params.count > 1 { inner.defineCopy(f.params[1].name, r) }
                 let flow = try execBlock(f.body, env: inner)
                 if case .ret(let v) = flow, let v = v { return v }
                 return .void
@@ -2135,7 +2138,7 @@ extension Interpreter {
             inner.selfObj = o
             for (i, p) in f.params.enumerated() {
                 if i < keys.count {
-                    inner.define(p.name, keys[i])
+                    inner.defineCopy(p.name, keys[i])
                 } else {
                     inner.define(p.name, v.copyForStorage)
                 }
@@ -2159,8 +2162,8 @@ extension Interpreter {
         default:
             if customOps.contains(op), let f = functions[op] {
                 let inner = Env()
-                if f.params.count > 0 { inner.define(f.params[0].name, l) }
-                if f.params.count > 1 { inner.define(f.params[1].name, r) }
+                if f.params.count > 0 { inner.defineCopy(f.params[0].name, l) }
+                if f.params.count > 1 { inner.defineCopy(f.params[1].name, r) }
                 let flow = try execBlock(f.body, env: inner)
                 if case .ret(let v) = flow, let v = v { return v }
                 return .void
@@ -2180,7 +2183,7 @@ extension Interpreter {
         if op == "!" { return .bool(!v.asBool()) }
         if customOps.contains(op), let f = functions[op] {
             let inner = Env()
-            if let p0 = f.params.first { inner.define(p0.name, v) }
+            if let p0 = f.params.first { inner.defineCopy(p0.name, v) }
             let flow = try execBlock(f.body, env: inner)
             if case .ret(let r) = flow, let r = r { return r }
             return .void

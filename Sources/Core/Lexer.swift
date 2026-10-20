@@ -47,6 +47,7 @@ let swiftKeywords: Set<String> = [
     "internal", "fileprivate", "mutating", "nonmutating", "override", "final", "lazy",
     "switch", "case", "default", "guard", "do", "catch", "throw", "throws", "try", "where",
     "typealias", "inout", "async", "await", "subscript", "operator", "as", "is",
+    "defer", "fallthrough", "escaping", "autoclosure",
     "convenience", "required", "indirect", "weak", "unowned", "open",
     "infix", "prefix", "postfix", "nonisolated", "rethrows", "sending", "precedencegroup"
 ]
@@ -158,8 +159,18 @@ final class Lexer {
             return Token(tok: .attr(name), line: sl, col: sc)
         }
 
-        if ch == "\"" {
-            return Token(tok: .strLit(try scanString()), line: sl, col: sc)
+        if ch == "\"" || ch == "#" {
+            var hashCount = 0
+            while at(0) == "#" {
+                hashCount += 1
+                bump()
+            }
+            if at(0) == "\"" {
+                return Token(tok: .strLit(try scanString(hashCount: hashCount)), line: sl, col: sc)
+            }
+            if hashCount > 0 {
+                throw LexError(message: "expected a raw string after '#'", line: sl)
+            }
         }
 
         if ch.isNumber {
@@ -209,7 +220,8 @@ final class Lexer {
 
         // Custom operators declared with `infix operator <+>` — longest match first.
         if !customOps.isEmpty {
-            let maxLen = min(4, c.count - i)
+            let longest = customOps.map(\.count).max() ?? 0
+            let maxLen = min(longest, c.count - i)
             if maxLen >= 1 {
                 var len = maxLen
                 while len >= 1 {
@@ -240,50 +252,102 @@ final class Lexer {
     }
 
     private func scanNumber() -> Tok {
+        if at(0) == "0", at(1) == "x" || at(1) == "X" {
+            bump()
+            bump()
+            var digits = ""
+            while let d = at(0), d.isHexDigit || d == "_" {
+                if d != "_" { digits.append(d) }
+                bump()
+            }
+            return .intLit(Int(digits, radix: 16) ?? 0)
+        }
+
         var s = ""
-        while let d = at(0), d.isNumber {
-            s.append(d); bump()
+        while let d = at(0), d.isNumber || d == "_" {
+            if d != "_" { s.append(d) }
+            bump()
         }
         if at(0) == ".", let n = at(1), n.isNumber {
             s.append("."); bump()
-            while let d = at(0), d.isNumber {
-                s.append(d); bump()
+            while let d = at(0), d.isNumber || d == "_" {
+                if d != "_" { s.append(d) }
+                bump()
             }
             return .doubleLit(Double(s) ?? 0)
         }
         return .intLit(Int(s) ?? 0)
     }
 
-    private func scanString() throws -> String {
+    private func scanString(hashCount: Int) throws -> String {
         var out = ""
-        bump() // opening quote
+        let triple = at(0) == "\"" && at(1) == "\"" && at(2) == "\""
+        let quoteCount = triple ? 3 : 1
+        for _ in 0..<quoteCount { bump() }
+
         while i < c.count {
             let d = c[i]
-            if d == "\\" {
-                out.append(d); bump()
-                guard i < c.count else { break }
-                let n = c[i]
-                if n == "(" {
-                    out.append(n); bump()
-                    var depth = 1
-                    while i < c.count, depth > 0 {
-                        let x = c[i]
-                        if x == "(" { depth += 1 }
-                        else if x == ")" { depth -= 1 }
-                        out.append(x); bump()
-                    }
-                } else {
-                    out.append(n); bump()
-                }
-                continue
-            }
-            if d == "\"" {
-                bump()
+
+            if isStringTerminator(triple: triple, hashCount: hashCount) {
+                for _ in 0..<(quoteCount + hashCount) { bump() }
                 return out
             }
-            if d == "\n" { break }
+
+            if d == "\\" {
+                if hashCount == 0 {
+                    out.append(d); bump()
+                    guard i < c.count else { break }
+                    let n = c[i]
+                    if n == "(" {
+                        out.append(n); bump()
+                        var depth = 1
+                        while i < c.count, depth > 0 {
+                            let x = c[i]
+                            if x == "(" { depth += 1 }
+                            else if x == ")" { depth -= 1 }
+                            out.append(x); bump()
+                        }
+                    } else {
+                        out.append(n); bump()
+                    }
+                    continue
+                }
+
+                var hashIndex = 1
+                while hashIndex <= hashCount, at(hashIndex) == "#" {
+                    hashIndex += 1
+                }
+                if hashIndex == hashCount + 1, at(hashIndex) == "(" {
+                    // Normalize raw interpolation `\#(` to the parser's `\(` form.
+                    out.append("\\")
+                    bump()
+                    for _ in 0..<hashCount { bump() }
+                    continue
+                }
+
+                out.append(d)
+                bump()
+                continue
+            }
+
+            if !triple, d == "\n" || d == "\r" { break }
             out.append(d); bump()
         }
         throw LexError(message: "unterminated string literal", line: line)
+    }
+
+    private func isStringTerminator(triple: Bool, hashCount: Int) -> Bool {
+        if triple {
+            guard at(0) == "\"", at(1) == "\"", at(2) == "\"" else { return false }
+            for offset in 0..<hashCount where at(3 + offset) != "#" {
+                return false
+            }
+            return true
+        }
+        guard at(0) == "\"" else { return false }
+        for offset in 0..<hashCount where at(1 + offset) != "#" {
+            return false
+        }
+        return true
     }
 }

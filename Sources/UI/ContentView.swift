@@ -52,6 +52,9 @@ final class Runner: ObservableObject {
             error = nil
         } catch {
             interpreter = interp
+            tree = .empty
+            output = []
+            mode = "none"
             self.error = "\(error)"
         }
         revision += 1
@@ -93,6 +96,7 @@ struct ContentView: View {
     @State private var booted = false
     @State private var renamingFile: SourceFile?
     @State private var renameText = ""
+    @State private var pendingFileDelete: SourceFile?
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -158,8 +162,23 @@ struct ContentView: View {
             }
             Button("Cancel", role: .cancel) { self.renamingFile = nil }
         }
+        .confirmationDialog("Delete this file?",
+                            isPresented: Binding(
+                                get: { pendingFileDelete != nil },
+                                set: { if !$0 { pendingFileDelete = nil } }
+                            ),
+                            titleVisibility: .visible,
+                            presenting: pendingFileDelete) { file in
+            Button("Delete \(file.displayName)", role: .destructive) {
+                deleteFile(file)
+                pendingFileDelete = nil
+            }
+            Button("Cancel", role: .cancel) { pendingFileDelete = nil }
+        } message: { file in
+            Text("Changes in \(file.displayName) will be removed from this project.")
+        }
         .onAppear { self.boot() }
-        .onChange(of: currentProjectID) { _ in
+        .onChange(of: currentProjectID) { _, _ in
             self.syncFileSelection()
             self.runNow()
         }
@@ -248,7 +267,7 @@ struct ContentView: View {
                     self.runner.engine = self.useVM ? .vm : .tree
                     self.runNow()
                 } label: {
-                    Label(useVM ? "Engine: Bytecode VM" : "Engine: Tree-walker",
+                    Label(useVM ? "Engine: Bytecode VM (Experimental)" : "Engine: Tree-walker",
                           systemImage: "cpu")
                 }
             } label: {
@@ -274,7 +293,7 @@ struct ContentView: View {
                             } label: {
                                 Image(systemName: "plus")
                                     .font(.footnote.weight(.semibold))
-                                    .frame(width: 32, height: 32)
+                                    .frame(width: 44, height: 44)
                             }
                             .accessibilityLabel("New file")
                         } else {
@@ -321,7 +340,7 @@ struct ContentView: View {
                     .lineLimit(1)
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 7)
+            .frame(minHeight: 44)
             .foregroundStyle(selected ? Color.accentColor : Color.primary)
             .background(
                 RoundedRectangle(cornerRadius: 8, style: .continuous)
@@ -344,7 +363,7 @@ struct ContentView: View {
                 Label("Set as Entry", systemImage: "play.circle")
             }
             Button(role: .destructive) {
-                deleteFile(f)
+                pendingFileDelete = f
             } label: {
                 Label("Delete", systemImage: "trash")
             }
@@ -382,6 +401,7 @@ struct ContentView: View {
             } label: {
                 Image(systemName: "xmark.circle.fill")
                     .foregroundStyle(.secondary)
+                    .frame(width: 44, height: 44)
             }
             .accessibilityLabel("Close find bar")
         }
@@ -425,6 +445,7 @@ struct ContentView: View {
 
     private var editor: some View {
         CodeEditor(text: fileText, fontSize: fontSize, query: showFind ? findQuery : "")
+            .accessibilityLabel("Swift code editor")
     }
 
     private func splitHandle(_ size: CGSize) -> some View {
@@ -535,6 +556,7 @@ struct ContentView: View {
                     UIPasteboard.general.string = runner.output.joined(separator: "\n")
                 } label: {
                     Image(systemName: "doc.on.doc")
+                        .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("Copy console output")
 
@@ -542,6 +564,7 @@ struct ContentView: View {
                     runner.clearConsole()
                 } label: {
                     Image(systemName: "trash")
+                        .frame(width: 44, height: 44)
                 }
                 .accessibilityLabel("Clear console")
             }
@@ -639,7 +662,15 @@ struct ContentView: View {
     private func applyRename(_ f: SourceFile) {
         guard let pi = store.projects.firstIndex(where: { $0.id == currentProjectID }),
               let fi = store.projects[pi].files.firstIndex(where: { $0.id == f.id }) else { return }
-        let newName = renameText.hasSuffix(".swift") ? renameText : renameText + ".swift"
+        var newName = store.safeSourceFileName(renameText)
+        if newName != f.name, store.projects[pi].files.contains(where: { $0.name == newName && $0.id != f.id }) {
+            let base = newName.replacingOccurrences(of: ".swift", with: "")
+            var suffix = 2
+            repeat {
+                newName = "\(base)\(suffix).swift"
+                suffix += 1
+            } while store.projects[pi].files.contains(where: { $0.name == newName && $0.id != f.id })
+        }
         if store.projects[pi].entry == f.name {
             store.projects[pi].entry = newName
         }
@@ -647,4 +678,16 @@ struct ContentView: View {
         renamingFile = nil
         store.persist(store.projects[pi])
     }
+}
+
+// Preview-only appearance checks. The app itself deliberately leaves the color
+// scheme to the system so Liquid Glass can adapt.
+#Preview("Light") {
+    ContentView()
+        .preferredColorScheme(.light)
+}
+
+#Preview("Dark") {
+    ContentView()
+        .preferredColorScheme(.dark)
 }

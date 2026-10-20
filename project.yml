@@ -38,4 +38,20 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: NO
         ONLY_ACTIVE_ARCH: NO
     scheme:
-      testTargets: []
+      testTargets:
+        - SwiftPadTests
+
+  SwiftPadTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - path: Tests
+    dependencies:
+      - target: SwiftPad
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.rna.swiftpad.tests
+        GENERATE_INFOPLIST_FILE: YES
+        CODE_SIGNING_ALLOWED: NO
+        CODE_SIGNING_REQUIRED: NO
+        SWIFT_VERSION: "5.9"

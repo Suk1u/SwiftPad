@@ -1,3 +1,4 @@
+// iOS 26 target: UIKit is used only for the native text-editing surface.
 import SwiftUI
 import UIKit
 
@@ -135,6 +136,7 @@ final class GutterView: UIView {
     var lineTops: [CGFloat] = []
     var offsetY: CGFloat = 0
     var fontSize: CGFloat = 11
+    private var needsRecompute = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -143,9 +145,19 @@ final class GutterView: UIView {
         contentMode = .redraw
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { return nil }
+
+    func setNeedsRecompute() {
+        needsRecompute = true
+        setNeedsDisplay()
+    }
 
     func recompute() {
+        recalculateLineTops()
+        setNeedsDisplay()
+    }
+
+    private func recalculateLineTops() {
         guard let tv = textView else { return }
         let text = tv.text as NSString
         var tops: [CGFloat] = []
@@ -164,11 +176,14 @@ final class GutterView: UIView {
         }
 
         lineTops = tops
-        setNeedsDisplay()
+        needsRecompute = false
     }
 
     override func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
+        if needsRecompute {
+            recalculateLineTops()
+        }
         ctx.setFillColor(Palette.bg.cgColor)
         ctx.fill(bounds)
 
@@ -217,7 +232,7 @@ final class EditorContainer: UIView {
         gutter.textView = textView
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { return nil }
 }
 
 // MARK: - Accessory bar
@@ -250,11 +265,11 @@ final class SuggestionBar: UIView {
             stack.leadingAnchor.constraint(equalTo: scroll.leadingAnchor),
             stack.trailingAnchor.constraint(greaterThanOrEqualTo: scroll.trailingAnchor),
             stack.centerYAnchor.constraint(equalTo: scroll.centerYAnchor),
-            stack.heightAnchor.constraint(equalToConstant: 30)
+            stack.heightAnchor.constraint(equalToConstant: 44)
         ])
     }
 
-    required init?(coder: NSCoder) { fatalError() }
+    required init?(coder: NSCoder) { return nil }
 
     func configure(_ items: [String], onTap: @escaping (String) -> Void) {
         self.onTap = onTap
@@ -268,7 +283,7 @@ final class SuggestionBar: UIView {
             b.setTitleColor(Palette.text, for: .normal)
             b.backgroundColor = UIColor(white: 1, alpha: 0.07)
             b.layer.cornerRadius = 5
-            b.contentEdgeInsets = UIEdgeInsets(top: 4, left: 9, bottom: 4, right: 9)
+            b.contentEdgeInsets = UIEdgeInsets(top: 10, left: 11, bottom: 10, right: 11)
             b.accessibilityLabel = "Insert \(item)"
             b.addAction(UIAction { [weak self] _ in self?.onTap?(item) }, for: .touchUpInside)
             stack.addArrangedSubview(b)
@@ -304,7 +319,8 @@ struct CodeEditor: UIViewRepresentable {
         tv.spellCheckingType = .no
         tv.keyboardType = .asciiCapable
         tv.textContainerInset = UIEdgeInsets(top: 12, left: 8, bottom: 60, right: 12)
-        tv.indicatorStyle = .white
+        tv.indicatorStyle = .default
+        tv.accessibilityLabel = "Swift code editor"
         tv.delegate = context.coordinator
 
         let bar = SuggestionBar(frame: CGRect(x: 0, y: 0,
@@ -331,8 +347,14 @@ struct CodeEditor: UIViewRepresentable {
         weak var bar: SuggestionBar?
         private var lastQuery = ""
         private var lastText = ""
+        private var lastFontSize: CGFloat = 0
+        private var refreshWork: DispatchWorkItem?
 
         init(_ parent: CodeEditor) { self.parent = parent }
+
+        deinit {
+            refreshWork?.cancel()
+        }
 
         func attach(container: EditorContainer, parent editor: CodeEditor) {
             self.container = container
@@ -344,8 +366,9 @@ struct CodeEditor: UIViewRepresentable {
             let tv = container.textView
             let textChanged = tv.text != text
             let queryChanged = query != lastQuery
+            let fontChanged = parent.fontSize != lastFontSize
 
-            if textChanged || force {
+            if textChanged || force || fontChanged {
                 let sel = tv.selectedRange
                 tv.attributedText = Syntax.attributed(text, font: CodeEditor.font(parent.fontSize), query: query)
                 let limit = (tv.text as NSString).length
@@ -364,6 +387,7 @@ struct CodeEditor: UIViewRepresentable {
 
             lastQuery = query
             lastText = text
+            lastFontSize = parent.fontSize
             if textChanged || force {
                 refreshSuggestions()
             }
@@ -375,16 +399,13 @@ struct CodeEditor: UIViewRepresentable {
             parent.text = tv.text
             lastText = tv.text
 
-            let sel = tv.selectedRange
-            tv.attributedText = Syntax.attributed(tv.text, font: CodeEditor.font(parent.fontSize), query: parent.query)
-            let limit = (tv.text as NSString).length
-            tv.selectedRange = NSRange(location: min(sel.location, limit), length: 0)
             tv.typingAttributes = [
                 .font: CodeEditor.font(parent.fontSize),
                 .foregroundColor: Palette.text
             ]
 
-            container?.gutter.recompute()
+            container?.gutter.setNeedsRecompute()
+            scheduleAppearanceRefresh()
             refreshSuggestions()
         }
 
@@ -405,6 +426,7 @@ struct CodeEditor: UIViewRepresentable {
         func textView(_ tv: UITextView, shouldChangeTextIn range: NSRange,
                       replacementText text: String) -> Bool {
             let ns = tv.text as NSString
+            let insertionIsCode = isCodePosition(in: ns, location: range.location)
 
             // newline: keep indentation, add a level after an opener
             if text == "\n" {
@@ -413,7 +435,8 @@ struct CodeEditor: UIViewRepresentable {
                 var indent = String(lineText.prefix { $0 == " " || $0 == "\t" })
                 let before = ns.substring(to: min(range.location, ns.length))
                 let trimmed = before.trimmingCharacters(in: .whitespaces)
-                if trimmed.hasSuffix("{") || trimmed.hasSuffix("(") || trimmed.hasSuffix("[") {
+                if insertionIsCode,
+                   trimmed.hasSuffix("{") || trimmed.hasSuffix("(") || trimmed.hasSuffix("[") {
                     indent += "    "
                 }
                 tv.insertText("\n" + indent)
@@ -421,7 +444,7 @@ struct CodeEditor: UIViewRepresentable {
             }
 
             // closing brace on an empty indented line: dedent first
-            if text == "}", range.length == 0 {
+            if text == "}", range.length == 0, insertionIsCode {
                 let lineRange = ns.lineRange(for: NSRange(location: min(range.location, ns.length), length: 0))
                 let head = ns.substring(to: range.location)
                 let lineStart = lineRange.location
@@ -439,8 +462,17 @@ struct CodeEditor: UIViewRepresentable {
                 }
             }
 
-            // auto-pair
-            if range.length == 0, let closer = pairs[text] {
+            if range.length == 0, text == "\"",
+               range.location < ns.length,
+               ns.substring(with: NSRange(location: range.location, length: 1)) == "\"" {
+                // Step over the closing quote even when the caret is inside a string.
+                tv.selectedRange = NSRange(location: range.location + 1, length: 0)
+                return false
+            }
+
+            // Pair only in executable code. Brace/quote insertion inside comments and
+            // strings is valid source text and must not be rewritten by the editor.
+            if insertionIsCode, range.length == 0, let closer = pairs[text] {
                 let next = range.location < ns.length
                     ? ns.substring(with: NSRange(location: range.location, length: 1))
                     : ""
@@ -460,6 +492,112 @@ struct CodeEditor: UIViewRepresentable {
             }
 
             return true
+        }
+
+        private func scheduleAppearanceRefresh() {
+            guard let tv = container?.textView else { return }
+            let snapshot = tv.text ?? ""
+            refreshWork?.cancel()
+            let work = DispatchWorkItem { [weak self, weak tv] in
+                guard let self = self, let tv = tv, tv.text == snapshot else { return }
+                self.applyAppearance(snapshot, to: tv, recomputeGutter: true)
+            }
+            refreshWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: work)
+        }
+
+        private func applyAppearance(_ text: String, to tv: UITextView, recomputeGutter: Bool) {
+            let selection = tv.selectedRange
+            tv.attributedText = Syntax.attributed(
+                text,
+                font: CodeEditor.font(parent.fontSize),
+                query: parent.query
+            )
+            let limit = (tv.text as NSString).length
+            tv.selectedRange = NSRange(location: min(selection.location, limit), length: 0)
+            tv.typingAttributes = [
+                .font: CodeEditor.font(parent.fontSize),
+                .foregroundColor: Palette.text
+            ]
+            if recomputeGutter {
+                container?.gutter.recompute()
+            }
+        }
+
+        /// Used to suppress brace/quote pairing inside strings and comments.
+        private func isCodePosition(in text: NSString, location: Int) -> Bool {
+            let limit = min(max(location, 0), text.length)
+            var index = 0
+            var blockDepth = 0
+            var inString = false
+            var multilineString = false
+            var inLineComment = false
+
+            func code(_ offset: Int) -> unichar {
+                let i = index + offset
+                return i < limit ? text.character(at: i) : 0
+            }
+
+            while index < limit {
+                let ch = code(0)
+                if inLineComment {
+                    if ch == 10 || ch == 13 { inLineComment = false }
+                    index += 1
+                    continue
+                }
+
+                if blockDepth > 0 {
+                    if ch == 47, code(1) == 42 {
+                        blockDepth += 1
+                        index += 2
+                    } else if ch == 42, code(1) == 47 {
+                        blockDepth -= 1
+                        index += 2
+                    } else {
+                        index += 1
+                    }
+                    continue
+                }
+
+                if inString {
+                    if multilineString, ch == 34, code(1) == 34, code(2) == 34 {
+                        inString = false
+                        multilineString = false
+                        index += 3
+                    } else if !multilineString, ch == 34 {
+                        inString = false
+                        index += 1
+                    } else if ch == 92 {
+                        index += 2
+                    } else {
+                        if !multilineString, ch == 10 || ch == 13 {
+                            inString = false
+                        }
+                        index += 1
+                    }
+                    continue
+                }
+
+                if ch == 47, code(1) == 47 {
+                    inLineComment = true
+                    index += 2
+                } else if ch == 47, code(1) == 42 {
+                    blockDepth = 1
+                    index += 2
+                } else if ch == 34 {
+                    inString = true
+                    if code(1) == 34, code(2) == 34 {
+                        multilineString = true
+                        index += 3
+                    } else {
+                        index += 1
+                    }
+                } else {
+                    index += 1
+                }
+            }
+
+            return !inString && blockDepth == 0 && !inLineComment
         }
 
         // MARK: suggestions

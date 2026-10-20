@@ -124,10 +124,16 @@ final class ProjectStore: ObservableObject {
             try? f.text.write(to: url, atomically: true, encoding: .utf8)
         }
 
-        // prune files that no longer exist
+        // Prune stale source files recursively. Looking only at the project
+        // directory's immediate children leaves deleted files behind in subfolders.
         let keep = Set(project.files.map { $0.name })
-        if let existing = try? fm.contentsOfDirectory(at: dir, includingPropertiesForKeys: nil) {
-            for url in existing where url.lastPathComponent != "_meta.json" {
+        if let existing = fm.enumerator(at: dir, includingPropertiesForKeys: [.isRegularFileKey]) {
+            for case let url as URL in existing {
+                guard url.lastPathComponent != "_meta.json" else { continue }
+                guard url.pathExtension == "swift" || url.pathExtension == "txt" else { continue }
+                guard (try? url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile) == true else {
+                    continue
+                }
                 let rel = url.path.replacingOccurrences(of: dir.path + "/", with: "")
                 if !keep.contains(rel) {
                     try? fm.removeItem(at: url)
@@ -144,12 +150,14 @@ final class ProjectStore: ObservableObject {
     }
 
     private var pendingSave: DispatchWorkItem?
+    private var pendingProjectID: UUID?
 
     func schedulePersist(_ project: Project) {
         pendingSave?.cancel()
         let w = DispatchWorkItem { [weak self] in self?.persist(project) }
         pendingSave = w
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.2, execute: w)
+        pendingProjectID = project.id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4, execute: w)
     }
 
     // MARK: CRUD
@@ -164,6 +172,11 @@ final class ProjectStore: ObservableObject {
     }
 
     func delete(_ project: Project) {
+        if pendingProjectID == project.id {
+            pendingSave?.cancel()
+            pendingSave = nil
+            pendingProjectID = nil
+        }
         projects.removeAll { $0.id == project.id }
         let dir = root.appendingPathComponent(project.id.uuidString, isDirectory: true)
         try? fm.removeItem(at: dir)
@@ -173,6 +186,19 @@ final class ProjectStore: ObservableObject {
         guard var p = projects.first(where: { $0.id == project.id }) else { return }
         p.name = newName
         save(p)
+    }
+
+    /// File names are relative paths, so reject traversal and keep the editor's
+    /// rename dialog from writing outside the project directory.
+    func safeSourceFileName(_ raw: String) -> String {
+        let normalized = raw
+            .replacingOccurrences(of: "\\", with: "/")
+            .split(separator: "/", omittingEmptySubsequences: true)
+            .filter { $0 != "." && $0 != ".." }
+            .joined(separator: "/")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return "Untitled.swift" }
+        return normalized.lowercased().hasSuffix(".swift") ? normalized : normalized + ".swift"
     }
 
     // MARK: import

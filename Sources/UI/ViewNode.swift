@@ -51,7 +51,7 @@ indirect enum Base {
     case group([ViewNode])
     case button([ViewNode], () -> Void)
     case toggle(String, StateBox)
-    case textField(String, StateBox)
+    case textField(String, StateBox, Bool)
     case slider(StateBox, Double, Double)
     case stepper(String, StateBox)
 }

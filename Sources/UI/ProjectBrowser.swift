@@ -264,3 +264,21 @@ struct ProjectBrowser: View {
         }
     }
 }
+
+#Preview("Project Browser · Light") {
+    ProjectBrowser(
+        store: ProjectStore(),
+        currentProjectID: .constant(nil),
+        isPresented: .constant(true)
+    )
+    .preferredColorScheme(.light)
+}
+
+#Preview("Project Browser · Dark") {
+    ProjectBrowser(
+        store: ProjectStore(),
+        currentProjectID: .constant(nil),
+        isPresented: .constant(true)
+    )
+    .preferredColorScheme(.dark)
+}
