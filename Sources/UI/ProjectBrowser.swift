@@ -31,41 +31,7 @@ struct ProjectBrowser: View {
             List {
                 Section("Projects") {
                     ForEach(filtered) { p in
-                        Button {
-                            currentProjectID = p.id
-                            isPresented = false
-                        } label: {
-                            row(p)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("\(p.name), \(p.files.count) files")
-                        .accessibilityAddTraits(p.id == currentProjectID ? [.isSelected] : [])
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            Button(role: .destructive) {
-                                pendingDelete = p
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                            Button {
-                                renaming = p
-                                renameText = p.name
-                            } label: {
-                                Label("Rename", systemImage: "pencil")
-                            }
-                        }
-                        .contextMenu {
-                            Button {
-                                renaming = p
-                                renameText = p.name
-                            } label: {
-                                Label("Rename", systemImage: "pencil")
-                            }
-                            Button(role: .destructive) {
-                                pendingDelete = p
-                            } label: {
-                                Label("Delete", systemImage: "trash")
-                            }
-                        }
+                        projectRow(p)
                     }
                 } footer: {
                     Text("Import a folder of Swift files, or pick individual files. Everything runs on device — no Xcode, no build step.")
@@ -157,6 +123,48 @@ struct ProjectBrowser: View {
                           allowedContentTypes: [swiftType, .plainText, .text],
                           allowsMultipleSelection: true) { result in
                 handleFiles(result)
+            }
+        }
+    }
+
+    /// Kept as its own function: one long modifier chain inside ForEach made the
+    /// type-checker time out ("unable to type-check in reasonable time").
+    private func projectRow(_ p: Project) -> some View {
+        let selected = p.id == currentProjectID
+
+        return Button {
+            currentProjectID = p.id
+            isPresented = false
+        } label: {
+            row(p)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("\(p.name), \(p.files.count) files")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            Button(role: .destructive) {
+                pendingDelete = p
+            } label: {
+                Label("Delete", systemImage: "trash")
+            }
+            Button {
+                renaming = p
+                renameText = p.name
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+        }
+        .contextMenu {
+            Button {
+                renaming = p
+                renameText = p.name
+            } label: {
+                Label("Rename", systemImage: "pencil")
+            }
+            Button(role: .destructive) {
+                pendingDelete = p
+            } label: {
+                Label("Delete", systemImage: "trash")
             }
         }
     }

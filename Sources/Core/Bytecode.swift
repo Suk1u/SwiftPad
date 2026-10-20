@@ -26,6 +26,7 @@ enum Op {
     case storeMember(String)
     case storeSubscriptNamed(String, Int)
     case storeSubscriptMember(String, Int)
+    case subscriptGet(Int)
 
     // stack shuffling
     case pop
@@ -38,6 +39,7 @@ enum Op {
     // control flow
     case jump(Int)
     case jumpIfFalse(Int)
+    case jumpIfTrue(Int)
     case jumpIfNil(Int)
 
     // aggregates
@@ -106,7 +108,7 @@ struct CatchArm {
 struct Frame {
     let chunkIndex: Int
     var ip: Int
-    let env: Env
+    var env: Env
     let stackBase: Int
     var handlers: [(ip: Int, stackDepth: Int)]
     var deferred: [Int]

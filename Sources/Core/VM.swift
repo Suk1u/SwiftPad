@@ -239,8 +239,16 @@ final class VM {
             case .jumpIfFalse(let target):
                 if !pop().asBool() { frames[frames.count - 1].ip = target }
 
+            case .jumpIfTrue(let target):
+                if pop().asBool() { frames[frames.count - 1].ip = target }
+
             case .jumpIfNil(let target):
                 if pop().isNil { frames[frames.count - 1].ip = target }
+
+            case .subscriptGet(let n):
+                let keys = popN(n)
+                let base = pop()
+                push(try rt.subscriptValue(base, keys))
 
             case .makeArray(let n):
                 let items = popN(n)
@@ -331,8 +339,7 @@ final class VM {
 
             case .tryOptional(let target):
                 frames[frames.count - 1].ip = target
-            case .tryForced(let target):
-                frames[frames.count - 1].ip = target
+            case .tryForced:/n                break
 
             case .forceUnwrap:
                 let v = pop()
@@ -510,7 +517,9 @@ final class VM {
         case .unary(let o): return "unary \(o)"
         case .jump(let t): return "jump \(t)"
         case .jumpIfFalse(let t): return "jumpIfFalse \(t)"
+        case .jumpIfTrue(let t): return "jumpIfTrue \(t)"
         case .jumpIfNil(let t): return "jumpIfNil \(t)"
+        case .subscriptGet(let n): return "subscript \(n)"
         case .makeArray(let n): return "array \(n)"
         case .makeTuple(let n): return "tuple \(n)"
         case .makeDict(let n): return "dict \(n)"
@@ -524,7 +533,7 @@ final class VM {
         case .popHandler: return "popHandler"
         case .throwTop: return "throw"
         case .tryOptional(let t): return "try? \(t)"
-        case .tryForced(let t): return "try! \(t)"
+        case .tryForced: return "try!"
         case .awaitTop: return "await"
         case .forceUnwrap: return "forceUnwrap"
         case .fallthroughJump: return "fallthrough"

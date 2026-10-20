@@ -2,6 +2,8 @@ import Foundation
 
 struct RuntimeError: Error, CustomStringConvertible {
     let message: String
+    init(_ message: String) { self.message = message }
+    init(message: String) { self.message = message }
     var description: String { message }
 }
 
@@ -314,7 +316,7 @@ final class Interpreter {
     }
 
     /// Single write path for object fields, so `willSet` / `didSet` always fire.
-    private func setField(_ o: ObjectInstance, _ name: String, _ v: Value, _ env: Env) throws {
+    func setField(_ o: ObjectInstance, _ name: String, _ v: Value, _ env: Env) throws {
         let obs = o.observers[name]
 
         if let will = obs?.willSet {
@@ -713,7 +715,7 @@ final class Interpreter {
 
     // MARK: - Pattern matching
 
-    private func match(_ p: Pattern, _ v: Value, _ binds: Env) -> Bool {
+    func match(_ p: Pattern, _ v: Value, _ binds: Env) -> Bool {
         switch p {
         case .wildcard:
             return true
@@ -869,6 +871,9 @@ final class Interpreter {
             } catch let t as ThrownError {
                 throw RuntimeError("try! failed: \(t.value.str())")
             }
+
+        case .literal(let v):
+            return v
         }
     }
 
@@ -901,7 +906,7 @@ final class Interpreter {
         return v
     }
 
-    private func assignVar(_ n: String, _ v: Value, _ env: Env) throws {
+    func assignVar(_ n: String, _ v: Value, _ env: Env) throws {
         let stored = v.copyForStorage
         if env.set(n, stored) { return }
         if let o = env.selfInstance() {
@@ -994,7 +999,7 @@ final class Interpreter {
         return try memberValue(base, name, env)
     }
 
-    private func memberValue(_ base: Value, _ name: String, _ env: Env) throws -> Value {
+    func memberValue(_ base: Value, _ name: String, _ env: Env) throws -> Value {
         switch base {
         case .object(let o):
             if let box = o.stateBoxes[name] { return box.value }
@@ -1093,7 +1098,7 @@ final class Interpreter {
         }
     }
 
-    private func subscriptValue(_ base: Value, _ keys: [Value]) throws -> Value {
+    func subscriptValue(_ base: Value, _ keys: [Value]) throws -> Value {
         guard let k = keys.first else { throw RuntimeError("empty subscript") }
         switch base {
         case .array(let a):
@@ -1157,7 +1162,7 @@ final class Interpreter {
         }
     }
 
-    private func callNamed(_ name: String, _ args: [Arg], _ env: Env) throws -> Value {
+    func callNamed(_ name: String, _ args: [Arg], _ env: Env) throws -> Value {
         if name == "print" {
             let parts = try args.map { try eval($0.value, env: env).str() }
             output.append(parts.joined(separator: " "))
@@ -1259,7 +1264,7 @@ final class Interpreter {
         throw RuntimeError("unknown function '\(name)'")
     }
 
-    private func callValue(_ f: Value, _ args: [Arg], _ env: Env) throws -> Value {
+    func callValue(_ f: Value, _ args: [Arg], _ env: Env) throws -> Value {
         switch f {
         case .function(let fd, let closureEnv):
             return try invoke(fd, args, env, nil, definingEnv: closureEnv)
@@ -1423,7 +1428,7 @@ final class Interpreter {
 
     // MARK: - Builtin members
 
-    private func callMember(_ base: Value, _ name: String, _ args: [Arg], _ env: Env) throws -> Value {
+    func callMember(_ base: Value, _ name: String, _ args: [Arg], _ env: Env) throws -> Value {
         // 1. View modifiers
         if case .view(var node) = base {
             let vals = try args.map { try eval($0.value, env: env) }
@@ -1998,7 +2003,7 @@ final class Interpreter {
 
     // MARK: - Iteration
 
-    private func iterate(_ v: Value) throws -> [Value] {
+    func iterate(_ v: Value) throws -> [Value] {
         switch v {
         case .array(let a):
             return a
