@@ -116,7 +116,11 @@ enum Syntax {
         paint("\\b(struct|class|enum|func|var|let|if|else|for|in|while|repeat|switch|case|default|return|guard|import|self|true|false|nil|some|init|break|continue|static|extension|protocol)\\b", Palette.keyword)
         paint("\\b[0-9]+(\\.[0-9]+)?\\b", Palette.number)
         paint("\"[^\"\\n]*\"", Palette.str)
+        paint("#+\"[^\"\\n]*\"#+", Palette.str)
+        paint("\"\"\"[\\s\\S]*?\"\"\"", Palette.str)
+        paint("#+\"\"\"[\\s\\S]*?\"\"\"#+", Palette.str)
         paint("//[^\\n]*", Palette.comment)
+        paint("/\\*[\\s\\S]*?\\*/", Palette.comment)
 
         if !query.isEmpty, let re = try? NSRegularExpression(pattern: NSRegularExpression.escapedPattern(for: query), options: [.caseInsensitive]) {
             re.enumerateMatches(in: code, options: [], range: full) { match, _, _ in
@@ -297,6 +301,8 @@ struct CodeEditor: UIViewRepresentable {
     @Binding var text: String
     var fontSize: CGFloat = 13.5
     var query: String = ""
+    var searchNonce: Int = 0
+    var searchForward: Bool = true
 
     static func font(_ size: CGFloat) -> UIFont {
         UIFont.monospacedSystemFont(ofSize: size, weight: .regular)
@@ -349,6 +355,7 @@ struct CodeEditor: UIViewRepresentable {
         private var lastText = ""
         private var lastFontSize: CGFloat = 0
         private var refreshWork: DispatchWorkItem?
+        private var lastSearchNonce = 0
 
         init(_ parent: CodeEditor) { self.parent = parent }
 
@@ -367,6 +374,7 @@ struct CodeEditor: UIViewRepresentable {
             let textChanged = tv.text != text
             let queryChanged = query != lastQuery
             let fontChanged = parent.fontSize != lastFontSize
+            let searchChanged = self.parent.searchNonce != lastSearchNonce
 
             if textChanged || force || fontChanged {
                 let sel = tv.selectedRange
@@ -388,8 +396,14 @@ struct CodeEditor: UIViewRepresentable {
             lastQuery = query
             lastText = text
             lastFontSize = parent.fontSize
+            lastSearchNonce = self.parent.searchNonce
             if textChanged || force {
                 refreshSuggestions()
+            }
+            if searchChanged {
+                selectMatch(in: tv, query: query, forward: self.parent.searchForward)
+            } else if queryChanged, !query.isEmpty {
+                selectFirstMatch(in: tv, query: query)
             }
         }
 
@@ -522,6 +536,63 @@ struct CodeEditor: UIViewRepresentable {
             if recomputeGutter {
                 container?.gutter.recompute()
             }
+        }
+
+        private func selectFirstMatch(in tv: UITextView, query: String) {
+            let ns = tv.text as NSString
+            let found = ns.range(
+                of: query,
+                options: [.caseInsensitive],
+                range: NSRange(location: 0, length: ns.length)
+            )
+            guard found.location != NSNotFound else { return }
+            tv.selectedRange = found
+            tv.scrollRangeToVisible(found)
+        }
+
+        private func selectMatch(in tv: UITextView, query: String, forward: Bool) {
+            guard !query.isEmpty else { return }
+            let ns = tv.text as NSString
+            guard ns.length > 0 else { return }
+
+            let selection = tv.selectedRange
+            var found = NSRange(location: NSNotFound, length: 0)
+            if forward {
+                let start = min(ns.length, NSMaxRange(selection))
+                found = ns.range(
+                    of: query,
+                    options: [.caseInsensitive],
+                    range: NSRange(location: start, length: ns.length - start)
+                )
+                if found.location == NSNotFound, start > 0 {
+                    found = ns.range(
+                        of: query,
+                        options: [.caseInsensitive],
+                        range: NSRange(location: 0, length: start)
+                    )
+                }
+            } else {
+                let end = min(ns.length, selection.location)
+                if end > 0 {
+                    found = ns.range(
+                        of: query,
+                        options: [.caseInsensitive, .backwards],
+                        range: NSRange(location: 0, length: end)
+                    )
+                }
+                if found.location == NSNotFound, end < ns.length {
+                    found = ns.range(
+                        of: query,
+                        options: [.caseInsensitive, .backwards],
+                        range: NSRange(location: 0, length: ns.length)
+                    )
+                }
+            }
+
+            guard found.location != NSNotFound else { return }
+            tv.becomeFirstResponder()
+            tv.selectedRange = found
+            tv.scrollRangeToVisible(found)
         }
 
         /// Used to suppress brace/quote pairing inside strings and comments.

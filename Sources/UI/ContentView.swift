@@ -90,6 +90,8 @@ struct ContentView: View {
     @State private var showFind = false
     @State private var findQuery = ""
     @State private var replaceText = ""
+    @State private var searchNonce = 0
+    @State private var searchForward = true
     @State private var fontSize: CGFloat = 13.5
     @State private var previewScheme = 0
     @State private var useVM = false
@@ -127,7 +129,12 @@ struct ContentView: View {
 
     private var matchCount: Int {
         guard !findQuery.isEmpty, let t = file?.text else { return 0 }
-        return t.components(separatedBy: findQuery).count - 1
+        let range = NSRange(location: 0, length: (t as NSString).length)
+        guard let expression = try? NSRegularExpression(
+            pattern: NSRegularExpression.escapedPattern(for: findQuery),
+            options: [.caseInsensitive]
+        ) else { return 0 }
+        return expression.numberOfMatches(in: t, options: [], range: range)
     }
 
     // MARK: body
@@ -373,40 +380,68 @@ struct ContentView: View {
     // MARK: find
 
     private var findBar: some View {
-        HStack(spacing: 8) {
-            TextField("Find", text: $findQuery)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .accessibilityLabel("Find text")
+        VStack(spacing: 6) {
+            HStack(spacing: 6) {
+                TextField("Find", text: $findQuery)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityLabel("Find text")
 
-            TextField("Replace", text: $replaceText)
-                .textFieldStyle(.roundedBorder)
-                .autocorrectionDisabled()
-                .textInputAutocapitalization(.never)
-                .accessibilityLabel("Replace with")
-
-            Text("\(matchCount)")
-                .font(.caption.monospacedDigit())
-                .foregroundStyle(.secondary)
-                .accessibilityLabel("\(matchCount) matches")
-
-            Button("Replace All") { replaceAll() }
-                .font(.footnote)
-                .disabled(findQuery.isEmpty)
-                .accessibilityLabel("Replace all matches")
-
-            Button {
-                showFind = false
-            } label: {
-                Image(systemName: "xmark.circle.fill")
+                Text("\(matchCount)")
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
-                    .frame(width: 44, height: 44)
+                    .accessibilityLabel("\(matchCount) matches")
+
+                Button {
+                    search(forward: false)
+                } label: {
+                    Image(systemName: "chevron.up")
+                        .frame(width: 44, height: 44)
+                }
+                .disabled(findQuery.isEmpty || matchCount == 0)
+                .accessibilityLabel("Previous match")
+
+                Button {
+                    search(forward: true)
+                } label: {
+                    Image(systemName: "chevron.down")
+                        .frame(width: 44, height: 44)
+                }
+                .disabled(findQuery.isEmpty || matchCount == 0)
+                .accessibilityLabel("Next match")
+
+                Button {
+                    showFind = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                        .frame(width: 44, height: 44)
+                }
+                .accessibilityLabel("Close find bar")
             }
-            .accessibilityLabel("Close find bar")
+
+            HStack(spacing: 8) {
+                TextField("Replace", text: $replaceText)
+                    .textFieldStyle(.roundedBorder)
+                    .autocorrectionDisabled()
+                    .textInputAutocapitalization(.never)
+                    .accessibilityLabel("Replace with")
+
+                Button("Replace All") { replaceAll() }
+                    .font(.footnote)
+                    .frame(minHeight: 44)
+                    .disabled(findQuery.isEmpty)
+                    .accessibilityLabel("Replace all matches")
+            }
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 8)
+    }
+
+    private func search(forward: Bool) {
+        searchForward = forward
+        searchNonce += 1
     }
 
     private func replaceAll() {
@@ -415,7 +450,11 @@ struct ContentView: View {
               let fi = store.projects[pi].files.firstIndex(where: { $0.id == currentFileID })
         else { return }
         let updated = store.projects[pi].files[fi].text
-            .replacingOccurrences(of: findQuery, with: replaceText)
+            .replacingOccurrences(
+                of: findQuery,
+                with: replaceText,
+                options: [.caseInsensitive]
+            )
         store.projects[pi].files[fi].text = updated
         runNow()
     }
@@ -444,7 +483,13 @@ struct ContentView: View {
     }
 
     private var editor: some View {
-        CodeEditor(text: fileText, fontSize: fontSize, query: showFind ? findQuery : "")
+        CodeEditor(
+            text: fileText,
+            fontSize: fontSize,
+            query: showFind ? findQuery : "",
+            searchNonce: searchNonce,
+            searchForward: searchForward
+        )
             .accessibilityLabel("Swift code editor")
     }
 
