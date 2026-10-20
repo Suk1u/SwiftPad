@@ -94,7 +94,7 @@ final class SwiftPadTests: XCTestCase {
             entry: "ContentView.swift"
         )
 
-        guard case .view(let node) = outcome.view else {
+        guard let node = outcome.view else {
             return XCTFail("expected a rendered view")
         }
         guard case .text(let text) = node.base else {
@@ -264,7 +264,7 @@ final class SwiftPadTests: XCTestCase {
             entry: "ContentView.swift"
         )
 
-        guard case .view(let node) = outcome.view,
+        guard let node = outcome.view,
               case .textField(_, _, let secure) = node.base else {
             return XCTFail("expected a text field node")
         }
