@@ -1,0 +1,24 @@
+# XcodeGen output — regenerate with `xcodegen generate`
+*.xcodeproj
+*.xcworkspace
+
+# Build products
+build/
+DerivedData/
+Payload/
+*.ipa
+*.dSYM
+*.xcarchive
+
+# Signing material — never commit these
+*.mobileprovision
+*.p12
+entitlements.plist
+
+# macOS
+.DS_Store
+
+# Editor
+.idea/
+.vscode/
+*.swp

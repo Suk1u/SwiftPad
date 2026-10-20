@@ -1,0 +1,106 @@
+name: Build unsigned IPA
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      xcode:
+        description: "Xcode version to select (e.g. 26.0). Empty = newest installed."
+        required: false
+        default: ""
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    # iOS 26 deployment target needs the Xcode 26 SDK. macos-latest rolls forward;
+    # pin to a specific image here if you need reproducibility.
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode
+        id: xcode
+        run: |
+          set -euo pipefail
+          REQUESTED="${{ inputs.xcode }}"
+          if [ -n "$REQUESTED" ]; then
+            sudo xcode-select -s "/Applications/Xcode_${REQUESTED}.app"
+          else
+            # Pick the highest installed Xcode.
+            BEST=$(ls -d /Applications/Xcode*.app 2>/dev/null \
+                   | sed 's#.*/Xcode_##; s#\.app##' \
+                   | grep -E '^[0-9]+(\.[0-9]+)*$' \
+                   | sort -V | tail -1)
+            if [ -n "$BEST" ]; then
+              sudo xcode-select -s "/Applications/Xcode_${BEST}.app"
+            fi
+          fi
+
+          echo "xcodebuild: $(xcodebuild -version | head -1)"
+          SDK=$(xcrun --sdk iphoneos --show-sdk-version)
+          echo "iphoneos SDK: $SDK"
+          echo "sdk=$SDK" >> "$GITHUB_OUTPUT"
+
+          MAJOR="${SDK%%.*}"
+          if [ "$MAJOR" -lt 26 ]; then
+            echo "::error::iPhoneOS SDK $SDK is too old. SwiftPad targets iOS 26 and uses"\
+              "Liquid Glass APIs (.glassEffect, GlassEffectContainer, .buttonStyle(.glass))."\
+              "Run this workflow on a runner image that provides Xcode 26 or newer."
+            exit 1
+          fi
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build (unsigned)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project SwiftPad.xcodeproj \
+            -scheme SwiftPad \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Package IPA
+        run: |
+          set -euo pipefail
+          APP="build/Build/Products/Release-iphoneos/SwiftPad.app"
+          test -d "$APP" || { echo "::error::No .app produced"; exit 1; }
+          rm -rf Payload SwiftPad.ipa
+          mkdir -p Payload
+          cp -R "$APP" "Payload/SwiftPad.app"
+          /usr/bin/zip -qry SwiftPad.ipa Payload
+          ls -lh SwiftPad.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: SwiftPad-unsigned-ipa
+          path: SwiftPad.ipa
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload build log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: build/Logs
+          if-no-files-found: ignore
+          retention-days: 7
