@@ -339,7 +339,8 @@ final class VM {
 
             case .tryOptional(let target):
                 frames[frames.count - 1].ip = target
-            case .tryForced:/n                break
+            case .tryForced:
+                break
 
             case .forceUnwrap:
                 let v = pop()
