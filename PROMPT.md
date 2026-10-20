@@ -97,6 +97,7 @@ swiftpad/
 └── Sources/
     ├── SwiftPadApp.swift          ~10 行
     ├── Info.plist
+    ├── Assets.xcassets/           App Icon（默认/深色/着色）
     ├── Core/
     │   ├── AST.swift              ~210 行   AST 节点 + 错误类型
     │   ├── Lexer.swift            ~290 行   分词器
@@ -507,6 +508,9 @@ static func dynamic(_ light: UIColor, _ dark: UIColor) -> UIColor {
 - **不要**在 App 入口加 `.preferredColorScheme(.dark)` —— 会让 Liquid Glass 的自适应失效。
 - 每个独立 UI 场景至少提供一个浅色和深色 `#Preview`；预览中的
   `.preferredColorScheme` 只用于画布验证，不得写入 App 入口。
+- App Icon 优先使用 Xcode 26 的 Icon Composer 分层资源。若执行环境没有
+  macOS / Icon Composer，必须提供可编译的 Asset Catalog 默认、深色和着色
+  变体作为回退，并在 README 明确说明 Clear/分层资源仍需后续补齐。
 
 ---
 

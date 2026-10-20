@@ -13,6 +13,7 @@ swiftpad/
 └── Sources/
     ├── SwiftPadApp.swift        # @main
     ├── Info.plist
+    ├── Assets.xcassets/         # default / dark / tinted app icon fallbacks
     ├── Core/
     │   ├── Lexer.swift          # tokenizer
     │   ├── AST.swift            # decls / exprs / stmts / patterns
@@ -192,6 +193,10 @@ xcodegen generate
 xcodebuild -project SwiftPad.xcodeproj -scheme SwiftPad \
   -destination 'platform=iOS Simulator,name=iPhone 17' test
 ```
+
+The repository includes 1024 px default, dark, and tinted App Icon assets. A layered Clear
+icon produced with Apple's macOS-only Icon Composer can replace these fallbacks without changing
+the target or code.
 
 Sideloading: free Apple ID = 7-day profile (re-sign weekly); paid account = 1 year; TrollStore =
 install the unsigned IPA directly, no expiry.
