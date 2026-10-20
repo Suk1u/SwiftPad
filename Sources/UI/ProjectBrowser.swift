@@ -96,10 +96,12 @@ struct ProjectBrowser: View {
 
     private var listWithToolbar: some View {
         List {
-            Section("Projects") {
+            Section {
                 ForEach(filtered) { p in
                     projectRow(p)
                 }
+            } header: {
+                Text("Projects")
             } footer: {
                 Text("Import a folder of Swift files, or pick individual files. Everything runs on device — no Xcode, no build step.")
             }
