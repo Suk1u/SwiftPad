@@ -28,69 +28,30 @@ struct ProjectBrowser: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                Section("Projects") {
-                    ForEach(filtered) { p in
-                        projectRow(p)
-                    }
-                } footer: {
-                    Text("Import a folder of Swift files, or pick individual files. Everything runs on device — no Xcode, no build step.")
-                }
+            withImports
+        }
+    }
+
+    // The modifier chain is split across four computed properties on purpose:
+    // one long chain here makes the type-checker give up with
+    // "unable to type-check this expression in reasonable time".
+
+    private var withImports: some View {
+        withDialogs
+            .fileImporter(isPresented: $showFolderImport,
+                          allowedContentTypes: [.folder],
+                          allowsMultipleSelection: false) { result in
+                handleFolder(result)
             }
-            .listStyle(.insetGrouped)
-            .searchable(text: $query, placement: .navigationBarDrawer, prompt: "Search Projects")
-            .navigationTitle("Projects")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button("Done") { isPresented = false }
-                        .accessibilityLabel("Close project browser")
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Menu {
-                        Button {
-                            newName = "Untitled"
-                            showNew = true
-                        } label: {
-                            Label("New Project", systemImage: "plus.square")
-                        }
-                        Button {
-                            showFolderImport = true
-                        } label: {
-                            Label("Import Folder", systemImage: "folder.badge.plus")
-                        }
-                        Button {
-                            showFileImport = true
-                        } label: {
-                            Label("Import Swift Files", systemImage: "doc.badge.plus")
-                        }
-                    } label: {
-                        Label("Add", systemImage: "plus")
-                    }
-                    .accessibilityLabel("Add project")
-                }
+            .fileImporter(isPresented: $showFileImport,
+                          allowedContentTypes: [swiftType, .plainText, .text],
+                          allowsMultipleSelection: true) { result in
+                handleFiles(result)
             }
-            .alert("New Project", isPresented: $showNew) {
-                TextField("Name", text: $newName)
-                Button("Create") {
-                    let p = store.create(name: newName.isEmpty ? "Untitled" : newName)
-                    currentProjectID = p.id
-                    isPresented = false
-                }
-                Button("Cancel", role: .cancel) {}
-            }
-            .alert("Rename Project", isPresented: Binding(
-                get: { renaming != nil },
-                set: { if !$0 { renaming = nil } }
-            )) {
-                TextField("Name", text: $renameText)
-                Button("Save") {
-                    if let p = renaming {
-                        store.rename(p, to: renameText.isEmpty ? p.name : renameText)
-                    }
-                    renaming = nil
-                }
-                Button("Cancel", role: .cancel) { renaming = nil }
-            }
+    }
+
+    private var withDialogs: some View {
+        withAlerts
             .confirmationDialog("Delete this project?",
                                 isPresented: Binding(
                                     get: { pendingDelete != nil },
@@ -106,6 +67,23 @@ struct ProjectBrowser: View {
             } message: { p in
                 Text("\(p.files.count) files will be removed from this device.")
             }
+    }
+
+    private var withAlerts: some View {
+        listWithToolbar
+            .alert("New Project", isPresented: $showNew) {
+                TextField("Name", text: $newName)
+                Button("Create") { createProject() }
+                Button("Cancel", role: .cancel) {}
+            }
+            .alert("Rename Project", isPresented: Binding(
+                get: { renaming != nil },
+                set: { if !$0 { renaming = nil } }
+            )) {
+                TextField("Name", text: $renameText)
+                Button("Save") { commitRename() }
+                Button("Cancel", role: .cancel) { renaming = nil }
+            }
             .alert("Import Failed", isPresented: Binding(
                 get: { importError != nil },
                 set: { if !$0 { importError = nil } }
@@ -114,17 +92,63 @@ struct ProjectBrowser: View {
             } message: {
                 Text(importError ?? "")
             }
-            .fileImporter(isPresented: $showFolderImport,
-                          allowedContentTypes: [.folder],
-                          allowsMultipleSelection: false) { result in
-                handleFolder(result)
-            }
-            .fileImporter(isPresented: $showFileImport,
-                          allowedContentTypes: [swiftType, .plainText, .text],
-                          allowsMultipleSelection: true) { result in
-                handleFiles(result)
+    }
+
+    private var listWithToolbar: some View {
+        List {
+            Section("Projects") {
+                ForEach(filtered) { p in
+                    projectRow(p)
+                }
+            } footer: {
+                Text("Import a folder of Swift files, or pick individual files. Everything runs on device — no Xcode, no build step.")
             }
         }
+        .listStyle(.insetGrouped)
+        .searchable(text: $query, placement: .navigationBarDrawer, prompt: "Search Projects")
+        .navigationTitle("Projects")
+        .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button("Done") { isPresented = false }
+                    .accessibilityLabel("Close project browser")
+            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Menu {
+                    Button {
+                        newName = "Untitled"
+                        showNew = true
+                    } label: {
+                        Label("New Project", systemImage: "plus.square")
+                    }
+                    Button {
+                        showFolderImport = true
+                    } label: {
+                        Label("Import Folder", systemImage: "folder.badge.plus")
+                    }
+                    Button {
+                        showFileImport = true
+                    } label: {
+                        Label("Import Swift Files", systemImage: "doc.badge.plus")
+                    }
+                } label: {
+                    Label("Add", systemImage: "plus")
+                }
+                .accessibilityLabel("Add project")
+            }
+        }
+    }
+
+    private func createProject() {
+        let p = store.create(name: newName.isEmpty ? "Untitled" : newName)
+        currentProjectID = p.id
+        isPresented = false
+    }
+
+    private func commitRename() {
+        if let p = renaming {
+            store.rename(p, to: renameText.isEmpty ? p.name : renameText)
+        }
+        renaming = nil
     }
 
     /// Kept as its own function: one long modifier chain inside ForEach made the
